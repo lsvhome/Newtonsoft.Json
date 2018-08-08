@@ -766,6 +766,7 @@ namespace Newtonsoft.Json
         /// <returns>The deserialized object from the JSON string.</returns>
         public static T DeserializeObject<T>(string value, JsonSerializerSettings settings)
         {
+            System.Diagnostics.Debug.WriteLine("JsonConvert.DeserializeObject<TokenResponse>(content, NewtonsoftJsonSerializer.CreateDefaultSettings());");
             return (T)DeserializeObject(value, typeof(T), settings);
         }
 
