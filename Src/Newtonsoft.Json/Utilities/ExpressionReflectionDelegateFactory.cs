@@ -32,6 +32,7 @@ using System;
 using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Newtonsoft.Json.Serialization;
 
 namespace Newtonsoft.Json.Utilities
@@ -363,71 +364,99 @@ namespace Newtonsoft.Json.Utilities
                 return LateBoundReflectionDelegateFactory.Instance.CreateSet<T>(propertyInfo);
             }
 
-            //Type instanceType = typeof(T);
-            //Type valueType = typeof(object);
+            Type instanceType = typeof(T);
+            Type valueType = typeof(object);
 
-            //ParameterExpression instanceParameter = Expression.Parameter(instanceType, "instance");
+            ParameterExpression instanceParameter = Expression.Parameter(instanceType, "instance");
 
-            //ParameterExpression valueParameter = Expression.Parameter(valueType, "value");
-            //Expression readValueParameter = EnsureCastExpression(valueParameter, propertyInfo.PropertyType);
+            ParameterExpression valueParameter = Expression.Parameter(valueType, "value");
+            Expression readValueParameter = EnsureCastExpression(valueParameter, propertyInfo.PropertyType);
 
             MethodInfo setMethod = propertyInfo.GetSetMethod(true);
 
-            bool IsNullable(Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
-
-            
-
-            Action<T, object> compiled1 = (x, y) =>
+            try
             {
-
-
-                bool isNullableX = IsNullable(x.GetType());
-                bool isNullableP = IsNullable(propertyInfo.PropertyType);
-
-                Type xT = isNullableX ? y.GetType().GetGenericArguments()[0] : y.GetType();
-                Type xP = isNullableP ? propertyInfo.PropertyType.GetGenericArguments()[0] : propertyInfo.PropertyType;
-
-                Debug.WriteLine($"CreateSet 003-1-0 {xP.IsAssignableFrom(xT)} | {xT.IsAssignableFrom(xP)}");
-
-                if (!propertyInfo.PropertyType.IsAssignableFrom(y.GetType()))
-                {
-                    Debug.WriteLine($"CreateSet 003-1-1 {propertyInfo?.Name} IS NOT ASSIGNABLE: {x.GetType().Name} | {y.GetType().Name} | {propertyInfo.PropertyType.Name}");
-                    Debug.WriteLine($"CreateSet 003-1-2 | {propertyInfo.PropertyType.Name} {isNullableX} | {isNullableP} | {xT.Name} | {xP.Name}");
-                }
-                else
-                {
-                    Debug.WriteLine($"CreateSet 003-002 {propertyInfo?.Name} IS ASSIGNABLE");
-                }
-
+                Debug.WriteLine($"CreateSet 011-1-0 {setMethod != null} {readValueParameter != null}");
+                Expression setExpression;
                 if (setMethod.IsStatic)
                 {
-                    propertyInfo.SetValue(null, y);
+                    Debug.WriteLine($"CreateSet 011-1-1");
+                    setExpression = Expression.Call(setMethod, readValueParameter);
                 }
                 else
                 {
-                    propertyInfo.SetValue(x, y);
+                    Debug.WriteLine($"CreateSet 011-1-2");
+                    Expression readInstanceParameter = EnsureCastExpression(instanceParameter, propertyInfo.DeclaringType);
+
+                    Debug.WriteLine($"CreateSet 011-1-3 {readInstanceParameter != null}");
+                    setExpression = Expression.Call(readInstanceParameter, setMethod, readValueParameter);
+                    Debug.WriteLine($"CreateSet 011-1-4 {setExpression != null}");
                 }
-            };
 
-            Debug.WriteLine($"CreateSet 004 {propertyInfo?.Name}");
-            return compiled1;
+                var a = typeof(LambdaExpression).Assembly;
+                
+                Debug.WriteLine($"CreateSet 011-2-0  {a.FullName} {a.Location}");
+                LambdaExpression lambdaExpression = Expression.Lambda(typeof(Action<T, object>), setExpression, instanceParameter, valueParameter);
+                Debug.WriteLine($"CreateSet 011-2-1 {lambdaExpression != null}");
+                Debug.WriteLine($"CreateSet 011-2-2 {lambdaExpression.Name}  {lambdaExpression.Body}  {lambdaExpression.NodeType}  {lambdaExpression.Parameters}  {lambdaExpression.ReturnType}");
 
-            //Expression setExpression;
-            //if (setMethod.IsStatic)
-            //{
-            //    //setExpression = Expression.Call(setMethod, readValueParameter);
-            //}
-            //else
-            //{
-            //    Expression readInstanceParameter = EnsureCastExpression(instanceParameter, propertyInfo.DeclaringType);
 
-            //    setExpression = Expression.Call(readInstanceParameter, setMethod, readValueParameter);
-            //}
 
-            //LambdaExpression lambdaExpression = Expression.Lambda(typeof(Action<T, object>), setExpression, instanceParameter, valueParameter);
+                Action<T, object> compiled = (Action<T, object>)lambdaExpression.Compile();
+                Debug.WriteLine($"CreateSet 011-3-0 {compiled != null}");
+                return compiled;
 
-            //Action<T, object> compiled = (Action<T, object>)lambdaExpression.Compile();
-            //return compiled;
+            }
+            catch (Exception e)
+            {
+
+                Debug.WriteLine(e.ToString());
+                //e.Process();
+                //System.Console.WriteLine(e);
+                //throw;
+
+
+                bool IsNullable(Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
+
+
+
+                Action<T, object> compiled1 = (x, y) =>
+                {
+
+
+                    bool isNullableX = IsNullable(x.GetType());
+                    bool isNullableP = IsNullable(propertyInfo.PropertyType);
+
+                    Type xT = isNullableX ? y.GetType().GetGenericArguments()[0] : y.GetType();
+                    Type xP = isNullableP ? propertyInfo.PropertyType.GetGenericArguments()[0] : propertyInfo.PropertyType;
+
+                    Debug.WriteLine($"CreateSet 003-1-0 {xP.IsAssignableFrom(xT)} | {xT.IsAssignableFrom(xP)}");
+
+                    if (!propertyInfo.PropertyType.IsAssignableFrom(y.GetType()))
+                    {
+                        Debug.WriteLine($"CreateSet 003-1-1 {propertyInfo?.Name} IS NOT ASSIGNABLE: {x.GetType().Name} | {y.GetType().Name} | {propertyInfo.PropertyType.Name}");
+                        Debug.WriteLine($"CreateSet 003-1-2 | {propertyInfo.PropertyType.Name} {isNullableX} | {isNullableP} | {xT.Name} | {xP.Name}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"CreateSet 003-002 {propertyInfo?.Name} IS ASSIGNABLE");
+                    }
+
+                    if (setMethod.IsStatic)
+                    {
+                        propertyInfo.SetValue(null, y);
+                    }
+                    else
+                    {
+                        propertyInfo.SetValue(x, y);
+                    }
+                };
+
+                Debug.WriteLine($"CreateSet 004 {propertyInfo?.Name}");
+                return compiled1;
+
+            }
+
         }
         
         private Expression EnsureCastExpression(Expression expression, Type targetType, bool allowWidening = false)
