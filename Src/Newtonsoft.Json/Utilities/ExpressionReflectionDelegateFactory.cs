@@ -29,10 +29,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System;
-using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using Newtonsoft.Json.Serialization;
 
 namespace Newtonsoft.Json.Utilities
@@ -214,81 +212,63 @@ namespace Newtonsoft.Json.Utilities
             }
         }
 
+        private bool isWasmFromNetStandard20Code()
+        {
+#if NETSTANDARD2_0
+            return System.Environment.MachineName == "emscripten";
+#else
+            return false;
+#endif
+        }
+
         public override Func<T, object> CreateGet<T>(PropertyInfo propertyInfo)
         {
-            Debug.WriteLine("CreateGet 1 " + propertyInfo?.Name);
-
             ValidationUtils.ArgumentNotNull(propertyInfo, nameof(propertyInfo));
-
-            //Type instanceType = typeof(T);
-            //Type resultType = typeof(object);
-
-            //ParameterExpression parameterExpression = Expression.Parameter(instanceType, "instance");
-            //Expression resultExpression;
-
-            //MethodInfo getMethod = propertyInfo.GetGetMethod(true);
-
-            //if (getMethod.IsStatic)
-            //{
-            //    resultExpression = Expression.MakeMemberAccess(null, propertyInfo);
-            //}
-            //else
-            //{
-            //    Expression readParameter = EnsureCastExpression(parameterExpression, propertyInfo.DeclaringType);
-
-            //    resultExpression = Expression.MakeMemberAccess(readParameter, propertyInfo);
-            //}
-
-            //resultExpression = EnsureCastExpression(resultExpression, resultType);
-
-            //LambdaExpression lambdaExpression = Expression.Lambda(typeof(Func<T, object>), resultExpression, parameterExpression);
-
-            //Func<T, object> compiled = (Func<T, object>)lambdaExpression.Compile();
-            //return compiled;
 
             MethodInfo getMethod = propertyInfo.GetGetMethod(true);
 
-            bool IsNullable(Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
+#if NETSTANDARD2_0
 
-
-
-            Func<T, object> compiled1 = (x) =>
+            if (isWasmFromNetStandard20Code())
             {
-
-
-                bool isNullableX = IsNullable(x.GetType());
-                bool isNullableP = IsNullable(propertyInfo.PropertyType);
-
-                //Type xT = isNullableX ? y.GetType().GetGenericArguments()[0] : y.GetType();
-                Type xP = isNullableP ? propertyInfo.PropertyType.GetGenericArguments()[0] : propertyInfo.PropertyType;
-
-                //Debug.WriteLine($"CreateSet 003-1-0 {xP.IsAssignableFrom(xT)} | {xT.IsAssignableFrom(xP)}");
-
-                //if (!propertyInfo.PropertyType.IsAssignableFrom(y.GetType()))
-                //{
-                //    Debug.WriteLine($"CreateSet 003-1-1 {propertyInfo?.Name} IS NOT ASSIGNABLE: {x.GetType().Name} | {y.GetType().Name} | {propertyInfo.PropertyType.Name}");
-                //    Debug.WriteLine($"CreateSet 003-1-2 | {propertyInfo.PropertyType.Name} {isNullableX} | {isNullableP} | {xT.Name} | {xP.Name}");
-                //}
-                //else
-                //{
-                //    Debug.WriteLine($"CreateSet 003-002 {propertyInfo?.Name} IS ASSIGNABLE");
-                //}
-
-                if (getMethod.IsStatic)
+                Func<T, object> ret = (T genericTypeInstance) =>
                 {
-                    T gg = (T)propertyInfo.GetValue(null);
-                    return gg;
-                }
-                else
-                {
-                    T gg = (T)propertyInfo.GetValue(x);
-                    return gg;
-                }
-            };
+                    if (getMethod.IsStatic)
+                    {
+                        return (T)propertyInfo.GetValue(null);
+                    }
+                    else
+                    {
+                        return (T)propertyInfo.GetValue(genericTypeInstance);
+                    }
+                };
 
-            Debug.WriteLine($"CreateSet 004 {propertyInfo?.Name}");
-            return compiled1;
+                return ret;
+            }
+#endif
+            Type instanceType = typeof(T);
+            Type resultType = typeof(object);
 
+            ParameterExpression parameterExpression = Expression.Parameter(instanceType, "instance");
+            Expression resultExpression;
+
+            if (getMethod.IsStatic)
+            {
+                resultExpression = Expression.MakeMemberAccess(null, propertyInfo);
+            }
+            else
+            {
+                Expression readParameter = EnsureCastExpression(parameterExpression, propertyInfo.DeclaringType);
+
+                resultExpression = Expression.MakeMemberAccess(readParameter, propertyInfo);
+            }
+
+            resultExpression = EnsureCastExpression(resultExpression, resultType);
+
+            LambdaExpression lambdaExpression = Expression.Lambda(typeof(Func<T, object>), resultExpression, parameterExpression);
+
+            Func<T, object> compiled = (Func<T, object>)lambdaExpression.Compile();
+            return compiled;
         }
 
         public override Func<T, object> CreateGet<T>(FieldInfo fieldInfo)
@@ -353,8 +333,6 @@ namespace Newtonsoft.Json.Utilities
 
         public override Action<T, object> CreateSet<T>(PropertyInfo propertyInfo)
         {
-            Debug.WriteLine("CreateSet 1 " + propertyInfo?.Name);
-
             ValidationUtils.ArgumentNotNull(propertyInfo, nameof(propertyInfo));
 
             // use reflection for structs
@@ -374,89 +352,50 @@ namespace Newtonsoft.Json.Utilities
 
             MethodInfo setMethod = propertyInfo.GetSetMethod(true);
 
-            try
+#if NETSTANDARD2_0
+
+            if (isWasmFromNetStandard20Code())
             {
-                Debug.WriteLine($"CreateSet 011-1-0 {setMethod != null} {readValueParameter != null}");
-                Expression setExpression;
-                if (setMethod.IsStatic)
+                Func<Type, bool> IsNullable = (Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
+
+                Action<T, object> ret = (T genericTypeInstance, object genericTypeValue) =>
                 {
-                    Debug.WriteLine($"CreateSet 011-1-1");
-                    setExpression = Expression.Call(setMethod, readValueParameter);
-                }
-                else
-                {
-                    Debug.WriteLine($"CreateSet 011-1-2");
-                    Expression readInstanceParameter = EnsureCastExpression(instanceParameter, propertyInfo.DeclaringType);
+                    bool isgenericTypeNullable = IsNullable(genericTypeInstance.GetType());
+                    bool isPropertyTypeNullable = IsNullable(propertyInfo.PropertyType);
 
-                    Debug.WriteLine($"CreateSet 011-1-3 {readInstanceParameter != null}");
-                    setExpression = Expression.Call(readInstanceParameter, setMethod, readValueParameter);
-                    Debug.WriteLine($"CreateSet 011-1-4 {setExpression != null}");
-                }
-
-                var a = typeof(LambdaExpression).Assembly;
-                
-                Debug.WriteLine($"CreateSet 011-2-0  {a.FullName} {a.Location}");
-                LambdaExpression lambdaExpression = Expression.Lambda(typeof(Action<T, object>), setExpression, instanceParameter, valueParameter);
-                Debug.WriteLine($"CreateSet 011-2-1 {lambdaExpression != null}");
-                Debug.WriteLine($"CreateSet 011-2-2 {lambdaExpression.Name}  {lambdaExpression.Body}  {lambdaExpression.NodeType}  {lambdaExpression.Parameters}  {lambdaExpression.ReturnType}");
-
-
-
-                Action<T, object> compiled = (Action<T, object>)lambdaExpression.Compile();
-                Debug.WriteLine($"CreateSet 011-3-0 {compiled != null}");
-                return compiled;
-
-            }
-            catch (Exception e)
-            {
-
-                Debug.WriteLine(e.ToString());
-                //e.Process();
-                //System.Console.WriteLine(e);
-                //throw;
-
-
-                bool IsNullable(Type type) => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
-
-
-
-                Action<T, object> compiled1 = (x, y) =>
-                {
-
-
-                    bool isNullableX = IsNullable(x.GetType());
-                    bool isNullableP = IsNullable(propertyInfo.PropertyType);
-
-                    Type xT = isNullableX ? y.GetType().GetGenericArguments()[0] : y.GetType();
-                    Type xP = isNullableP ? propertyInfo.PropertyType.GetGenericArguments()[0] : propertyInfo.PropertyType;
-
-                    Debug.WriteLine($"CreateSet 003-1-0 {xP.IsAssignableFrom(xT)} | {xT.IsAssignableFrom(xP)}");
-
-                    if (!propertyInfo.PropertyType.IsAssignableFrom(y.GetType()))
-                    {
-                        Debug.WriteLine($"CreateSet 003-1-1 {propertyInfo?.Name} IS NOT ASSIGNABLE: {x.GetType().Name} | {y.GetType().Name} | {propertyInfo.PropertyType.Name}");
-                        Debug.WriteLine($"CreateSet 003-1-2 | {propertyInfo.PropertyType.Name} {isNullableX} | {isNullableP} | {xT.Name} | {xP.Name}");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"CreateSet 003-002 {propertyInfo?.Name} IS ASSIGNABLE");
-                    }
+                    Type notNullableGenericType = isgenericTypeNullable ? genericTypeValue.GetType().GetGenericArguments()[0] : genericTypeValue.GetType();
+                    Type notNullablePropertyType = isPropertyTypeNullable ? propertyInfo.PropertyType.GetGenericArguments()[0] : propertyInfo.PropertyType;
 
                     if (setMethod.IsStatic)
                     {
-                        propertyInfo.SetValue(null, y);
+                        propertyInfo.SetValue(null, genericTypeValue);
                     }
                     else
                     {
-                        propertyInfo.SetValue(x, y);
+                        propertyInfo.SetValue(genericTypeInstance, genericTypeValue);
                     }
                 };
 
-                Debug.WriteLine($"CreateSet 004 {propertyInfo?.Name}");
-                return compiled1;
+                return ret;
+            }
+#endif
 
+            Expression setExpression;
+            if (setMethod.IsStatic)
+            {
+                setExpression = Expression.Call(setMethod, readValueParameter);
+            }
+            else
+            {
+                Expression readInstanceParameter = EnsureCastExpression(instanceParameter, propertyInfo.DeclaringType);
+
+                setExpression = Expression.Call(readInstanceParameter, setMethod, readValueParameter);
             }
 
+            LambdaExpression lambdaExpression = Expression.Lambda(typeof(Action<T, object>), setExpression, instanceParameter, valueParameter);
+
+            Action<T, object> compiled = (Action<T, object>)lambdaExpression.Compile();
+            return compiled;
         }
         
         private Expression EnsureCastExpression(Expression expression, Type targetType, bool allowWidening = false)
